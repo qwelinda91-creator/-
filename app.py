@@ -420,14 +420,14 @@ with left_col:
         st.write("### 반복지출 감지")
         expense_df = tx_df[tx_df["구분"] == "지출"].copy()
         repeat = (
-            expense_df.groupby(["메모", "금액"], dropna=False)
+            expense_df.groupby(["카테고리"], dropna=False)
             .size()
             .reset_index(name="횟수")
             .sort_values("횟수", ascending=False)
         )
-        repeat = repeat[(repeat["횟수"] >= 3) & (repeat["메모"].astype(str).str.len() > 0)]
+        repeat = repeat[repeat["횟수"] >= 3]
         if repeat.empty:
-            st.info("반복지출 후보가 아직 없어요. 같은 항목이 3회 이상 쌓이면 표시됩니다.")
+            st.info("반복지출 후보가 아직 없어요. 같은 카테고리 지출이 3회 이상 쌓이면 표시됩니다.")
         else:
             st.dataframe(repeat.head(10), use_container_width=True)
     else:
