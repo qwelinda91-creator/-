@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import altair as alt
 from typing import List
 from io import BytesIO
 import re
@@ -255,89 +256,10 @@ with st.sidebar:
 left_col, right_col = st.columns([1.2, 1], gap="large")
 
 with left_col:
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.subheader("소비 입력")
-    st.markdown('<p class="small-muted">오늘 기준으로 수입과 지출을 입력해보세요.</p>', unsafe_allow_html=True)
-
-    c1, c2 = st.columns(2)
-    with c1:
-        income = st.number_input("수입 (원)", min_value=0, step=1000, format="%d")
-    with c2:
-        expense = st.number_input("지출 (원)", min_value=0, step=1000, format="%d")
-
-    calc = st.button("계산하기", use_container_width=True, type="primary")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    if calc:
-        df = pd.DataFrame({"수입": [income], "지출": [expense]})
-        df["잔액"] = df["수입"] - df["지출"]
-        st.session_state.last_df = df
-
-    df = st.session_state.last_df.copy()
     transactions = st.session_state.transaction_records.copy()
-    if not transactions.empty:
-        total_income = int(transactions[transactions["구분"] == "수입"]["금액"].sum())
-        total_expense = int(transactions[transactions["구분"] == "지출"]["금액"].sum())
-        total_balance = total_income - total_expense
-    else:
-        df = st.session_state.last_df
-        total_income = int(df["수입"].sum()) if not df.empty else 0
-        total_expense = int(df["지출"].sum()) if not df.empty else 0
-        total_balance = int(df["잔액"].sum()) if not df.empty else 0
-
-    m1, m2, m3 = st.columns(3)
-    m1.metric("총 수입", f"{total_income:,}원")
-    m2.metric("총 지출", f"{total_expense:,}원")
-    m3.metric("총 잔액", f"{total_balance:,}원", delta=f"{(total_income - total_expense):,}원")
-
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.write("### 결과 테이블")
-    st.dataframe(df, use_container_width=True)
-    st.bar_chart(df[["수입", "지출", "잔액"]], use_container_width=True)
-
-    if total_balance < 0:
-        st.error("⚠️ 적자입니다. 고정비부터 줄여보는 것을 추천해요.")
-    elif total_balance < 10000:
-        st.warning("⚠️ 잔액이 적습니다. 이번 주 식비/배달비를 점검해보세요.")
-    else:
-        st.success("✅ 안정적인 소비입니다. 현재 패턴을 유지해보세요.")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.subheader("🎯 목표/예산 상태")
-    goal_progress = (total_balance / save_goal * 100) if save_goal > 0 else 0
-    st.metric("월 저축 목표 달성률", f"{goal_progress:.1f}%")
-    if save_goal > 0:
-        if total_balance >= save_goal:
-            st.success("목표 저축액을 달성했어요.")
-        else:
-            st.info(f"목표까지 {save_goal - total_balance:,}원 남았어요.")
-
-    budgets = {
-        "식비": budget_food,
-        "교통": budget_transport,
-        "생활": budget_life,
-        "구독": budget_sub,
-    }
-    tx_budget = st.session_state.transaction_records.copy()
-    if not tx_budget.empty:
-        tx_budget["금액"] = pd.to_numeric(tx_budget["금액"], errors="coerce").fillna(0).astype(int)
-        tx_budget = tx_budget[tx_budget["구분"] == "지출"]
-        budget_rows = []
-        for cat, budget in budgets.items():
-            used = int(tx_budget[tx_budget["카테고리"] == cat]["금액"].sum())
-            ratio = (used / budget * 100) if budget > 0 else 0
-            budget_rows.append({"카테고리": cat, "예산": budget, "사용": used, "사용률(%)": round(ratio, 1)})
-        budget_df = pd.DataFrame(budget_rows)
-        st.dataframe(budget_df, use_container_width=True)
-        for _, row in budget_df.iterrows():
-            if row["사용률(%)"] >= 100:
-                st.error(f"{row['카테고리']} 예산 초과: {int(row['사용']):,}원 / {int(row['예산']):,}원")
-            elif row["사용률(%)"] >= 80:
-                st.warning(f"{row['카테고리']} 예산 80% 이상 사용")
-    else:
-        st.info("예산 사용률을 보려면 거래 내역을 먼저 추가해주세요.")
-    st.markdown("</div>", unsafe_allow_html=True)
+    total_income = int(transactions[transactions["구분"] == "수입"]["금액"].sum())
+    total_expense = int(transactions[transactions["구분"] == "지출"]["금액"].sum())
+    total_balance = total_income - total_expense
 
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.subheader("📅 날짜별 입출금 내역")
@@ -394,28 +316,26 @@ with left_col:
             .rename(columns={"날짜": "일자"})
         )
         daily["순변동"] = daily["수입금액"] - daily["지출금액"]
+        daily["일자표시"] = pd.to_datetime(daily["일자"]).map(lambda d: f"{d.month}/{d.day}")
 
         st.write("### 일자별 요약")
-        st.dataframe(daily, use_container_width=True)
-        st.line_chart(daily.set_index("일자")[["수입금액", "지출금액"]], use_container_width=True)
+        st.dataframe(daily[["일자", "수입금액", "지출금액", "순변동"]], use_container_width=True)
+        daily_chart_data = daily[["일자표시", "지출금액"]].copy()
+        daily_chart = (
+            alt.Chart(daily_chart_data)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("일자표시:N", sort=list(daily["일자표시"]), axis=alt.Axis(labelAngle=0, title="일자")),
+                y=alt.Y("지출금액:Q", title="지출 금액"),
+                tooltip=["일자표시:N", "지출금액:Q"],
+            )
+        )
+        st.altair_chart(daily_chart, use_container_width=True)
 
         tx_view = tx_df.sort_values("날짜", ascending=False).copy()
         tx_view["날짜"] = tx_view["날짜"].dt.strftime("%Y-%m-%d")
         st.write("### 거래 내역")
         st.dataframe(tx_view, use_container_width=True)
-
-        st.write("### 월간 리포트")
-        current_month = pd.Timestamp.today().month
-        month_df = tx_df[tx_df["날짜"].dt.month == current_month]
-        month_income = int(month_df[month_df["구분"] == "수입"]["금액"].sum())
-        month_expense = int(month_df[month_df["구분"] == "지출"]["금액"].sum())
-        month_balance = month_income - month_expense
-        saving_rate = (month_balance / month_income * 100) if month_income > 0 else 0
-        r1, r2, r3, r4 = st.columns(4)
-        r1.metric("이번 달 수입", f"{month_income:,}원")
-        r2.metric("이번 달 지출", f"{month_expense:,}원")
-        r3.metric("이번 달 잔액", f"{month_balance:,}원")
-        r4.metric("저축률", f"{saving_rate:.1f}%")
 
         st.write("### 반복지출 감지")
         expense_df = tx_df[tx_df["구분"] == "지출"].copy()
@@ -432,6 +352,47 @@ with left_col:
             st.dataframe(repeat.head(10), use_container_width=True)
     else:
         st.info("아직 등록된 입출금 내역이 없어요. 위에서 내역을 추가해보세요.")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.subheader("🎯 목표/예산 상태")
+    b1, b2, b3 = st.columns(3)
+    b1.metric("총 수입", f"{total_income:,}원")
+    b2.metric("총 지출", f"{total_expense:,}원")
+    b3.metric("총 잔액", f"{total_balance:,}원", delta=f"{(total_income - total_expense):,}원")
+
+    goal_progress = (total_balance / save_goal * 100) if save_goal > 0 else 0
+    st.metric("월 저축 목표 달성률", f"{goal_progress:.1f}%")
+    if save_goal > 0:
+        if total_balance >= save_goal:
+            st.success("목표 저축액을 달성했어요.")
+        else:
+            st.info(f"목표까지 {save_goal - total_balance:,}원 남았어요.")
+
+    budgets = {
+        "식비": budget_food,
+        "교통": budget_transport,
+        "생활": budget_life,
+        "구독": budget_sub,
+    }
+    tx_budget = st.session_state.transaction_records.copy()
+    if not tx_budget.empty:
+        tx_budget["금액"] = pd.to_numeric(tx_budget["금액"], errors="coerce").fillna(0).astype(int)
+        tx_budget = tx_budget[tx_budget["구분"] == "지출"]
+        budget_rows = []
+        for cat, budget in budgets.items():
+            used = int(tx_budget[tx_budget["카테고리"] == cat]["금액"].sum())
+            ratio = (used / budget * 100) if budget > 0 else 0
+            budget_rows.append({"카테고리": cat, "예산": budget, "사용": used, "사용률(%)": round(ratio, 1)})
+        budget_df = pd.DataFrame(budget_rows)
+        st.dataframe(budget_df, use_container_width=True)
+        for _, row in budget_df.iterrows():
+            if row["사용률(%)"] >= 100:
+                st.error(f"{row['카테고리']} 예산 초과: {int(row['사용']):,}원 / {int(row['예산']):,}원")
+            elif row["사용률(%)"] >= 80:
+                st.warning(f"{row['카테고리']} 예산 80% 이상 사용")
+    else:
+        st.info("예산 사용률을 보려면 거래 내역을 먼저 추가해주세요.")
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
@@ -542,10 +503,10 @@ with right_col:
             with st.chat_message("user"):
                 st.write(user_input)
 
-            df = st.session_state.last_df
-            total_income = int(df["수입"].sum()) if not df.empty else 0
-            total_expense = int(df["지출"].sum()) if not df.empty else 0
-            total_balance = int(df["잔액"].sum()) if not df.empty else 0
+            tx_for_chat = st.session_state.transaction_records.copy()
+            total_income = int(tx_for_chat[tx_for_chat["구분"] == "수입"]["금액"].sum())
+            total_expense = int(tx_for_chat[tx_for_chat["구분"] == "지출"]["금액"].sum())
+            total_balance = total_income - total_expense
 
             answer = local_finance_chatbot(
                 user_input=user_input,
