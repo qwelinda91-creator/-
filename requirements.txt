@@ -1,4 +1,0 @@
-streamlit
-pandas
-pillow
-pytesseract
