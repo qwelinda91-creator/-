@@ -127,6 +127,29 @@ def add_receipt(user_id: str, row: dict):
 def clear_receipts(user_id: str):
     get_supabase().table("receipt_records").delete().eq("user_id", user_id).execute()
 
+def load_budgets(user_id: str) -> dict:
+    resp = get_supabase().table("user_settings").select("*").eq("user_id", user_id).execute()
+    if not resp.data:
+        return {}
+    row = resp.data[0]
+    return {
+        "food": row.get("budget_food", 300000),
+        "transport": row.get("budget_transport", 100000),
+        "life": row.get("budget_life", 150000),
+        "sub": row.get("budget_sub", 50000),
+        "save_goal": row.get("save_goal", 300000),
+    }
+
+def save_budgets(user_id: str, data: dict):
+    get_supabase().table("user_settings").upsert({
+        "user_id": user_id,
+        "budget_food": data["food"],
+        "budget_transport": data["transport"],
+        "budget_life": data["life"],
+        "budget_sub": data["sub"],
+        "save_goal": data["save_goal"],
+    }).execute()
+
 def normalize_ocr_text(text: str) -> str:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     cleaned: List[str] = []
@@ -721,6 +744,14 @@ if "transaction_records" not in st.session_state:
     st.session_state.transaction_records = load_transactions(user_id)
 if "receipt_records" not in st.session_state:
     st.session_state.receipt_records = load_receipts(user_id)
+if "budgets_loaded" not in st.session_state:
+    _b = load_budgets(user_id)
+    st.session_state.budget_food = _b.get("food", 300000)
+    st.session_state.budget_transport = _b.get("transport", 100000)
+    st.session_state.budget_life = _b.get("life", 150000)
+    st.session_state.budget_sub = _b.get("sub", 50000)
+    st.session_state.save_goal = _b.get("save_goal", 300000)
+    st.session_state.budgets_loaded = True
 
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -805,13 +836,26 @@ if btn2.button(f"🔄 초기화 {reset_arrow}", use_container_width=True, key="r
 if st.session_state.show_budget:
     with st.container(border=True):
         c1, c2 = st.columns(2)
-        budget_food = c1.number_input("식비", min_value=0, step=10000, value=300000)
-        budget_transport = c2.number_input("교통", min_value=0, step=10000, value=100000)
-        budget_life = c1.number_input("생활", min_value=0, step=10000, value=150000)
-        budget_sub = c2.number_input("구독", min_value=0, step=10000, value=50000)
-        save_goal = st.number_input("월 저축 목표", min_value=0, step=50000, value=300000)
+        budget_food = c1.number_input("식비", min_value=0, step=10000, key="budget_food")
+        budget_transport = c2.number_input("교통", min_value=0, step=10000, key="budget_transport")
+        budget_life = c1.number_input("생활", min_value=0, step=10000, key="budget_life")
+        budget_sub = c2.number_input("구독", min_value=0, step=10000, key="budget_sub")
+        save_goal = st.number_input("월 저축 목표", min_value=0, step=50000, key="save_goal")
+        if st.button("💾 저장", use_container_width=True):
+            save_budgets(user_id, {
+                "food": st.session_state.budget_food,
+                "transport": st.session_state.budget_transport,
+                "life": st.session_state.budget_life,
+                "sub": st.session_state.budget_sub,
+                "save_goal": st.session_state.save_goal,
+            })
+            st.success("예산이 저장됐어요.")
 else:
-    budget_food, budget_transport, budget_life, budget_sub, save_goal = 300000, 100000, 150000, 50000, 300000
+    budget_food = st.session_state.get("budget_food", 300000)
+    budget_transport = st.session_state.get("budget_transport", 100000)
+    budget_life = st.session_state.get("budget_life", 150000)
+    budget_sub = st.session_state.get("budget_sub", 50000)
+    save_goal = st.session_state.get("save_goal", 300000)
 
 if st.session_state.show_reset:
     with st.container(border=True):
